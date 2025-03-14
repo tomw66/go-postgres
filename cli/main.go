@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"database/sql"
 	"fmt"
 	"go-postgres/database"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,7 +19,9 @@ var baseStyle = lipgloss.NewStyle().
 	BorderForeground(lipgloss.Color("240"))
 
 type model struct {
+    database *sql.DB
 	table table.Model
+    confirmDelete bool
 }
 
 func (m model) Init() tea.Cmd { return nil }
@@ -35,17 +40,54 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "q", "ctrl+c":
 			return m, tea.Quit
 		case "enter":
-			return m, tea.Batch(
-				tea.Printf("Let's go to %s!", m.table.SelectedRow()[1]),
-			)
+			row := m.table.SelectedRow()
+			fmt.Println("Editing row:", row)
+			fmt.Println("Enter new values (comma separated): ")
+			var input string
+			fmt.Scanln(&input)
+			newValues := strings.Split(input, ",")
+			if len(newValues) == len(row) {
+				rows := m.table.Rows()
+				rows[m.table.Cursor()] = newValues
+                m.updateRow(newValues)
+				m.table.UpdateViewport()
+			} else {
+				fmt.Println("Invalid input")
+			}
+        case "backspace":
+            fmt.Println("debug: pressed backspace")
+            if m.confirmDelete {
+                fmt.Println("Deleting row!")
+                m.confirmDelete = false
+            } else {
+                m.confirmDelete = true
+            }
 		}
 	}
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
 }
 
+func (m model) updateRow(row []string) {
+    var id int
+    var name string
+    var age int
+
+    if len(row) == 3 {
+        id, _ = strconv.Atoi(row[0])
+        name = row[1]
+        age, _ = strconv.Atoi(row[2])
+    }
+    database.UpdateRecord(m.database, id, name, age)
+    fmt.Println("updated")
+}
+
 func (m model) View() string {
-	return baseStyle.Render(m.table.View()) + "\n"
+    msg := ""
+	if m.confirmDelete {
+		msg = "Delete row? Press again to confirm\n"
+	}
+	return fmt.Sprintf("%s%s", msg, m.table.View())
 }
 
 func createTable(records []database.Record) table.Model {
@@ -81,6 +123,7 @@ func createTable(records []database.Record) table.Model {
 
     return t
 }
+
 func CLI() {
     fmt.Println("CLI call working!")
 
@@ -95,7 +138,7 @@ func CLI() {
 
     table := createTable(records)
 
-	m := model{table}
+	m := model{db, table, false}
 
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Println("Error running program:", err)
