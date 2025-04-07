@@ -60,8 +60,8 @@ type Record struct {
 	Age  int
 }
 
-// createTable creates the records table if it doesn't exist
-func createTable(db *sql.DB) error {
+// createEmptyTable creates the records table if it doesn't exist
+func createEmptyTable(db *sql.DB) error {
     query := `
     CREATE TABLE IF NOT EXISTS records (
         id SERIAL PRIMARY KEY,
@@ -81,7 +81,7 @@ func InitialiseTable() *sql.DB {
 	}
 
 	// Create the table if it doesn't exist
-	err = createTable(db)
+	err = createEmptyTable(db)
 	if err != nil {
 		log.Fatal("Error creating table: ", err)
 	}
@@ -90,6 +90,7 @@ func InitialiseTable() *sql.DB {
 }
 
 // CreateRecord creates a new record in the database
+// TODO delete in favour of InsertRecord?
 func CreateRecord(db *sql.DB, name string, age int) (int, error) {
 	var id int
 	err := db.QueryRow("INSERT INTO records(name, age) VALUES($1, $2) RETURNING id", name, age).Scan(&id)
@@ -119,6 +120,17 @@ func ReadRecords(db *sql.DB) ([]Record, error) {
 	return records, nil
 }
 
+// ClearRecords removes all records from the database
+func ClearRecords(db *sql.DB) error {
+	_, err := db.Exec("DELETE FROM records")
+	return err
+}
+
+// InsertRecord inserts a single record into the database
+func InsertRecord(db *sql.DB, record Record) error {
+	_, err := db.Exec("INSERT INTO records (id, name, age) VALUES ($1, $2, $3)", record.ID, record.Name, record.Age)
+	return err
+}
 
 // UpdateRecord updates an existing record in the database
 func UpdateRecord(db *sql.DB, id int, name string, age int) error {

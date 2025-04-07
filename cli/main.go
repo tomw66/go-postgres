@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"database/sql"
 	"fmt"
 	"go-postgres/database"
+	"log"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
@@ -14,6 +17,7 @@ import (
 )
 
 type model struct {
+	database      *sql.DB
 	table         table.Model
 	textInput     textinput.Model
 	addingRow     bool
@@ -30,6 +34,7 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "ctrl+c":
+		m.replaceAllRows(m.table.Rows())
 		return m, tea.Quit
 
 	case "enter":
@@ -224,13 +229,40 @@ func createTable(records []database.Record) table.Model {
 	return t
 }
 
-func CLI() {
-	fmt.Println("CLI call working!")
+func (m *model) replaceAllRows(rows []table.Row) error {
+	// Clear the existing records in the database
+	if err := database.ClearRecords(m.database); err != nil {
+		return fmt.Errorf("failed to clear records: %w", err)
+	}
 
-	records := []database.Record{
-		{ID: 0, Name: "Amy", Age: 24},
-		{ID: 1, Name: "Brett", Age: 75},
-		{ID: 2, Name: "Charlie", Age: 29},
+	// Insert the new records into the database
+	for _, row := range rows {
+		if len(row) < 3 {
+			continue // Skip invalid rows
+		}
+		id, _ := strconv.Atoi(row[0])
+		age, _ := strconv.Atoi(row[2])
+		record :=  database.Record{
+			ID:   id,
+			Name: row[1],
+			Age:  age,
+		}
+		if err := database.InsertRecord(m.database, record); err != nil {
+			return fmt.Errorf("failed to insert record: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func CLI() {
+    // initialise db
+    db := database.InitialiseTable()
+
+    // Read records
+	records, err := database.ReadRecords(db)
+	if err != nil {
+		log.Fatal("Error reading records: ", err)
 	}
 
 	ti := textinput.New()
@@ -239,6 +271,7 @@ func CLI() {
 	ti.Width = 30
 
 	m := model{
+		database: db,
 		table:     createTable(records),
 		textInput: ti,
 	}
