@@ -1,109 +1,208 @@
 package cli
 
 import (
-	"database/sql"
 	"fmt"
 	"go-postgres/database"
-	"log"
 	"os"
-	"strconv"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/table"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
 
-var baseStyle = lipgloss.NewStyle().
-	BorderStyle(lipgloss.NormalBorder()).
-	BorderForeground(lipgloss.Color("240"))
-
 type model struct {
-    database *sql.DB
-	table table.Model
-    confirmDelete bool
+	table         table.Model
+	textInput     textinput.Model
+	addingRow     bool
+	editingRow    bool
+	editIndex     int
+	message       string
+	confirmDelete bool
 }
 
 func (m model) Init() tea.Cmd { return nil }
 
+func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		return m, tea.Quit
+
+	case "enter":
+		m.confirmDelete = false
+		// Add row
+		if m.table.Cursor() == len(m.table.Rows())-1 {
+			m.addingRow = true
+			m.textInput.SetValue("")
+			m.textInput.Focus()
+			m.message = "✏️ Adding row. Enter new values:"
+		} else {
+			// Edit row
+			m.editIndex = m.table.Cursor()
+			m.editingRow = true
+			m.textInput.SetValue(strings.Join(m.table.SelectedRow(), ","))
+			m.textInput.Focus()
+			m.message = fmt.Sprintf("✏️ Editing row %d. Enter new values:", m.editIndex)
+		}
+		return m, textinput.Blink
+
+	case "backspace":
+		if m.confirmDelete {
+			rows := m.table.Rows()
+			cursor := m.table.Cursor()
+			if len(rows) > 0 {
+				rows = append(rows[:cursor], rows[cursor+1:]...)
+				m.table.SetRows(rows)
+
+				if cursor >= len(rows) && len(rows) > 0 {
+					m.table.SetCursor(len(rows) - 1)
+				}
+
+				m.message = "✅ Row deleted successfully."
+			}
+			m.confirmDelete = false
+		} else {
+			m.message = "Press backspace again to confirm deletion."
+			m.confirmDelete = true
+		}
+		return m, nil
+
+	default:
+		m.confirmDelete = false
+	}
+
+	m.table, cmd = m.table.Update(msg)
+	return m, cmd
+}
+
+func (m *model) addRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg.Type {
+	case tea.KeyEnter:
+		input := m.textInput.Value()
+		newValues := strings.Split(strings.TrimSpace(input), ",")
+
+		if len(newValues) == 3 {
+			rows := m.table.Rows()
+			rows = slices.Insert(rows, len(rows)-1 ,newValues)
+			m.table.SetRows(rows)
+			m.table.SetCursor(len(rows)-2)
+
+			m.message = "✅ Row added successfully."
+		} else {
+			m.message = "❌ Invalid input. Format: id,name,age"
+		}
+		m.addingRow = false
+		m.textInput.Reset()
+		return m, nil
+
+	case tea.KeyEsc:
+		// Cancel adding the row
+		m.message = "❌ Row addition cancelled."
+		m.addingRow = false
+		m.textInput.Reset()
+		return m, nil
+	}
+	// Update text input as the user types
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
+func (m *model) editRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
+
+	switch msg.Type {
+	case tea.KeyEnter:
+		input := m.textInput.Value()
+		newValues := strings.Split(strings.TrimSpace(input), ",")
+		row := m.table.SelectedRow()
+
+		if len(newValues) == len(row) {
+			rows := m.table.Rows()
+			rows[m.editIndex] = newValues
+			m.table.SetRows(rows)
+			m.table.SetCursor(m.editIndex)
+
+			m.message = "✅ Row updated successfully."
+		} else {
+			m.message = "❌ Invalid input. Format: id,name,age"
+		}
+		m.editingRow = false
+		m.textInput.Reset()
+		return m, nil
+
+	case tea.KeyEsc:
+		m.message = "❌ Edit canceled."
+		m.editingRow = false
+		m.textInput.Reset()
+		return m, nil
+	}
+
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
+}
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
+
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		switch msg.String() {
-		case "esc":
-			if m.table.Focused() {
-				m.table.Blur()
-			} else {
-				m.table.Focus()
-			}
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "enter":
-			row := m.table.SelectedRow()
-			fmt.Println("Editing row:", row)
-			fmt.Println("Enter new values (comma separated): ")
-			var input string
-			fmt.Scanln(&input)
-			newValues := strings.Split(input, ",")
-			if len(newValues) == len(row) {
-				rows := m.table.Rows()
-				rows[m.table.Cursor()] = newValues
-                m.updateRow(newValues)
-				m.table.UpdateViewport()
-			} else {
-				fmt.Println("\n\nInvalid input")
-			}
-        case "backspace":
-            if m.confirmDelete {
-                fmt.Printf("Deleting row id %v!", m.table.Cursor())
-				// database.DeleteRecord(m.database, m.table.Cursor())
-                m.confirmDelete = false
-            } else {
-				fmt.Println("Press backspace again to confirm deletion.")
-                m.confirmDelete = true
-            }
+		// Handle adding new row
+		if m.addingRow {
+			return m.addRow(msg)
 		}
+		// Handle editing row
+		if m.editingRow {
+			return m.editRow(msg)
+		}
+		// Handle normal table input
+		return m.handleTableInput(msg)
 	}
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
 }
 
-func (m model) updateRow(row []string) {
-    var id int
-    var name string
-    var age int
-
-    if len(row) == 3 {
-        id, _ = strconv.Atoi(row[0])
-        name = row[1]
-        age, _ = strconv.Atoi(row[2])
-    }
-    database.UpdateRecord(m.database, id, name, age)
-    fmt.Println("Row updated successfully.")
-}
-
 func (m model) View() string {
-    msg := ""
-	// if m.confirmDelete {
-	// 	msg = "Delete row? Press again to confirm\n"
-	// }
-	return fmt.Sprintf("%s%s", msg, m.table.View())
+	var b strings.Builder
+
+	b.WriteString(m.table.View())
+	b.WriteString("\n\n")
+
+	if m.editingRow || m.addingRow {
+		b.WriteString(m.message + "\n")
+		b.WriteString(m.textInput.View())
+	} else if m.message != "" {
+		b.WriteString(m.message + "\n")
+	}
+
+	return b.String()
 }
 
 func createTable(records []database.Record) table.Model {
-    columns := []table.Column{
+	columns := []table.Column{
 		{Title: "ID", Width: 4},
-		{Title: "Name", Width: 10},
+		{Title: "Name", Width: 13},
 		{Title: "Age", Width: 5},
 	}
 
-    var rows []table.Row
-    for _, record := range records {
-        rows = append(rows, table.Row{fmt.Sprintf("%d", record.ID), record.Name, fmt.Sprintf("%d", record.Age)})
-    }
+	var rows []table.Row
+	for _, record := range records {
+		rows = append(rows, table.Row{
+			fmt.Sprintf("%d", record.ID),
+			record.Name,
+			fmt.Sprintf("%d", record.Age),
+		})
+	}
 
-    t := table.New(
+	// Add a special row at the end for "Add New Row"
+	rows = append(rows, table.Row{"...", "Add New Row", ""})
+
+	t := table.New(
 		table.WithColumns(columns),
 		table.WithRows(rows),
 		table.WithFocused(true),
@@ -122,24 +221,27 @@ func createTable(records []database.Record) table.Model {
 		Bold(false)
 	t.SetStyles(s)
 
-    return t
+	return t
 }
 
 func CLI() {
-    fmt.Println("CLI call working!")
+	fmt.Println("CLI call working!")
 
-    // initialise db
-    db := database.InitialiseTable()
-
-    // Read records
-	records, err := database.ReadRecords(db)
-	if err != nil {
-		log.Fatal("Error reading records: ", err)
+	records := []database.Record{
+		{ID: 0, Name: "Amy", Age: 24},
+		{ID: 1, Name: "Brett", Age: 75},
+		{ID: 2, Name: "Charlie", Age: 29},
 	}
 
-    table := createTable(records)
+	ti := textinput.New()
+	ti.Placeholder = "id,name,age"
+	ti.CharLimit = 100
+	ti.Width = 30
 
-	m := model{db, table, false}
+	m := model{
+		table:     createTable(records),
+		textInput: ti,
+	}
 
 	if _, err := tea.NewProgram(m).Run(); err != nil {
 		fmt.Println("Error running program:", err)
