@@ -52,14 +52,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
                 m.updateRow(newValues)
 				m.table.UpdateViewport()
 			} else {
-				fmt.Println("Invalid input")
+				fmt.Println("\n\nInvalid input")
 			}
         case "backspace":
-            fmt.Println("debug: pressed backspace")
             if m.confirmDelete {
-                fmt.Println("Deleting row!")
+                fmt.Printf("Deleting row id %v!", m.table.Cursor())
+				// database.DeleteRecord(m.database, m.table.Cursor())
                 m.confirmDelete = false
             } else {
+				fmt.Println("Press backspace again to confirm deletion.")
                 m.confirmDelete = true
             }
 		}
@@ -79,14 +80,14 @@ func (m model) updateRow(row []string) {
         age, _ = strconv.Atoi(row[2])
     }
     database.UpdateRecord(m.database, id, name, age)
-    fmt.Println("updated")
+    fmt.Println("Row updated successfully.")
 }
 
 func (m model) View() string {
     msg := ""
-	if m.confirmDelete {
-		msg = "Delete row? Press again to confirm\n"
-	}
+	// if m.confirmDelete {
+	// 	msg = "Delete row? Press again to confirm\n"
+	// }
 	return fmt.Sprintf("%s%s", msg, m.table.View())
 }
 
