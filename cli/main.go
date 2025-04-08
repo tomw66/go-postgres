@@ -34,8 +34,6 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "ctrl+c":
-		// Update database (ignoring 'add new row')
-		m.replaceAllRows(m.table.Rows()[:len(m.table.Rows())-1])
 		return m, tea.Quit
 
 	case "enter":
@@ -69,6 +67,12 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 
 				m.message = "✅ Row deleted successfully."
+				//TODO deleting wrong record! What's the pattern?
+				id, _ := strconv.Atoi(rows[cursor][0])
+				err := database.DeleteRecord(m.database,id)
+				if err != nil {
+					m.message = fmt.Sprintf("❌ Error deleting record: %v", err)
+				}
 			}
 			m.confirmDelete = false
 		} else {
@@ -100,6 +104,11 @@ func (m *model) addRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.table.SetCursor(len(rows)-2)
 
 			m.message = "✅ Row added successfully."
+			age, _ := strconv.Atoi(newValues[2])
+			_, err := database.CreateRecord(m.database, newValues[1], age)
+			if err != nil {
+				m.message = fmt.Sprintf("❌ Error creating record: %v", err)
+			}
 		} else {
 			m.message = "❌ Invalid input. Format: id,name,age"
 		}
@@ -135,6 +144,12 @@ func (m *model) editRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.table.SetCursor(m.editIndex)
 
 			m.message = "✅ Row updated successfully."
+			id, _ := strconv.Atoi(newValues[0])
+			age, _ := strconv.Atoi(newValues[2])
+			err := database.UpdateRecord(m.database, id, newValues[1], age)
+			if err != nil {
+				m.message = fmt.Sprintf("❌ Error deleting record: %v", err)
+			}
 		} else {
 			m.message = "❌ Invalid input. Format: id,name,age"
 		}
@@ -228,32 +243,6 @@ func createTable(records []database.Record) table.Model {
 	t.SetStyles(s)
 
 	return t
-}
-
-func (m *model) replaceAllRows(rows []table.Row) error {
-	// Clear the existing records in the database
-	if err := database.ClearRecords(m.database); err != nil {
-		return fmt.Errorf("failed to clear records: %w", err)
-	}
-
-	// Insert the new records into the database
-	for _, row := range rows {
-		if len(row) < 3 {
-			continue // Skip invalid rows
-		}
-		id, _ := strconv.Atoi(row[0])
-		age, _ := strconv.Atoi(row[2])
-		record :=  database.Record{
-			ID:   id,
-			Name: row[1],
-			Age:  age,
-		}
-		if err := database.InsertRecord(m.database, record); err != nil {
-			return fmt.Errorf("failed to insert record: %w", err)
-		}
-	}
-
-	return nil
 }
 
 func CLI() {
