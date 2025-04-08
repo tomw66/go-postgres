@@ -34,7 +34,8 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch msg.String() {
 	case "q", "ctrl+c":
-		m.replaceAllRows(m.table.Rows())
+		// Update database (ignoring 'add new row')
+		m.replaceAllRows(m.table.Rows()[:len(m.table.Rows())-1])
 		return m, tea.Quit
 
 	case "enter":
