@@ -51,7 +51,7 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			row := m.table.SelectedRow()
 			m.textInput.SetValue(strings.Join(row, ",")) // Exclude ID from input
 			m.textInput.Focus()
-			m.message = fmt.Sprintf("✏️ Editing row. Enter new values:")
+			m.message = "✏️ Editing row. Enter new values:"
 		}
 		return m, textinput.Blink
 
@@ -61,9 +61,14 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			rows := m.table.Rows()
 			cursor := m.table.Cursor()
 			if len(rows) > 0 {
-				rows = append(rows[:cursor], rows[cursor+1:]...)
+				row := rows[cursor]
+				// Don't allow 'Add new row' to be deleted
+				if row[0] == "..." && row[1] == "Add New Row" {
+					m.message = "❌ Can't delete that row!"
+					return m, nil
+				}
+				rows = slices.Delete(rows, cursor, cursor+1)
 				m.table.SetRows(rows)
-
 				if cursor >= len(rows) && len(rows) > 0 {
 					m.table.SetCursor(len(rows) - 1)
 				}
@@ -169,11 +174,12 @@ func (m *model) editRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) getRowID(index int) int {
+	// Helper function
 	records, _ := database.ReadRecords(m.database)
 	if index < len(records) {
 		return records[index].ID
 	}
-	return -1 // Return an invalid ID if the index is out of range
+	return -1
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
