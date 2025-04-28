@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/table"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -93,30 +94,22 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.table, cmd = m.table.Update(msg)
 	return m, cmd
 }
-
 func (m *model) addRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch msg.Type {
 	case tea.KeyEnter:
 		input := m.textInput.Value()
-		newValues := strings.Split(strings.TrimSpace(input), ",")
-
-		if len(newValues) == 3 {
-			rows := m.table.Rows()
-			rows = slices.Insert(rows, len(rows)-1, newValues)
-			m.table.SetRows(rows)
-			m.table.SetCursor(len(rows) - 2)
-
-			priority, _ := strconv.Atoi(newValues[0])
-			id, err := database.CreateRecord(m.database, priority, newValues[1], newValues[2])
+		priority, task, due, err := m.parseInput(input)
+		if err != nil {
+			m.message = err.Error()
+		} else {
+			id, err := database.CreateRecord(m.database, priority, task, due)
 			if err != nil {
 				m.message = fmt.Sprintf("❌ Error creating record: %v", err)
 			} else {
 				m.message = fmt.Sprintf("✅ Created record with ID %d", id)
 			}
-		} else {
-			m.message = "❌ Invalid input. Format: priority,task,due"
 		}
 		m.addingRow = false
 		m.textInput.Reset()
@@ -134,6 +127,34 @@ func (m *model) addRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
+//TODO parseInput name is misleading; could probably split into 2 functions
+func (m *model) parseInput(input string) (int, string, time.Time, error) {
+	newValues := strings.Split(strings.TrimSpace(input), ",")
+	if len(newValues) != 3 {
+		return 0, "", time.Time{}, fmt.Errorf("❌ Invalid input. Format: priority,task,due")
+	}
+
+	priority, err := strconv.Atoi(strings.TrimSpace(newValues[0]))
+	if err != nil {
+		return 0, "", time.Time{}, fmt.Errorf("❌ Invalid priority: %w", err)
+	}
+
+	dueDate, err := time.Parse("01-02", strings.TrimSpace(newValues[2]))
+	if err != nil {
+		return 0, "", time.Time{}, fmt.Errorf("❌ Invalid due date: %w", err)
+	}
+
+	task := strings.TrimSpace(newValues[1])
+
+	// Update CLI table
+	rows := m.table.Rows()
+	rows = slices.Insert(rows, len(rows)-1, newValues)
+	m.table.SetRows(rows)
+	m.table.SetCursor(len(rows) - 2)
+
+	return priority, task, dueDate, nil
+}
+
 func (m *model) editRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
@@ -145,13 +166,14 @@ func (m *model) editRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		if len(newValues) == 3 {
 			rows := m.table.Rows()
-			rows[m.editIndex] = newValues
+			rows = slices.Insert(rows, m.editIndex, newValues) //TODO not deleting old record
 			m.table.SetRows(rows)
 			m.table.SetCursor(m.editIndex)
 
 			m.message = "✅ Row updated successfully."
 			priority, _ := strconv.Atoi(newValues[0])
-			err := database.UpdateRecord(m.database, id, priority, newValues[1], newValues[2])
+			dueDate, _ := time.Parse("01-02", strings.TrimSpace(newValues[2]))
+			err := database.UpdateRecord(m.database, id, priority, newValues[1], dueDate)
 			if err != nil {
 				m.message = fmt.Sprintf("❌ Error editing record: %v", err)
 			}
@@ -230,7 +252,7 @@ func createTable(records []database.Record) table.Model {
 		rows = append(rows, table.Row{
 			fmt.Sprintf("%d", record.Priority),
 			record.Task,
-			record.Due,
+			record.Due.Format("01-02"),
 		})
 	}
 

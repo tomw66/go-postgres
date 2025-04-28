@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -18,24 +19,23 @@ const (
 
 // Record represents a database record
 type Record struct {
-	ID	int
-	Priority	int
-	Task string
-	Due  string
+	ID       int
+	Priority int
+	Task     string
+	Due      time.Time
 }
 
 // createEmptyTable creates the table if it doesn't exist
 func createEmptyTable(db *sql.DB) error {
-    query := `
-    CREATE TABLE IF NOT EXISTS todo (
-        id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+	query := `
+	CREATE TABLE IF NOT EXISTS todo (
+		id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
 		priority INT,
-        task VARCHAR(100),
-		due VARCHAR(100),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )`
-    _, err := db.Exec(query)
-    return err
+		task VARCHAR(100),
+		due TIMESTAMP
+	)`
+	_, err := db.Exec(query)
+	return err
 }
 
 func InitialiseTable() *sql.DB {
@@ -55,7 +55,7 @@ func InitialiseTable() *sql.DB {
 }
 
 // CreateRecord creates a new record in the database
-func CreateRecord(db *sql.DB, priority int, task string, due string) (int, error) {
+func CreateRecord(db *sql.DB, priority int, task string, due time.Time) (int, error) {
 	var id int
 	err := db.QueryRow("INSERT INTO todo(priority, task, due) VALUES($1, $2, $3) RETURNING id", priority, task, due).Scan(&id)
 	if err != nil {
@@ -91,7 +91,7 @@ func ClearRecords(db *sql.DB) error {
 }
 
 // UpdateRecord updates an existing record in the database
-func UpdateRecord(db *sql.DB, id int, priority int, task string, due string) error {
+func UpdateRecord(db *sql.DB, id int, priority int, task string, due time.Time) error {
 	_, err := db.Exec("UPDATE todo SET priority=$2, task=$3, due=$4 WHERE id=$1", id, priority, task, due)
 
 	return err
