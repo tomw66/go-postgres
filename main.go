@@ -5,6 +5,5 @@ import (
 )
 
 func main() {
-	// test CLI working
 	cli.CLI()
 }

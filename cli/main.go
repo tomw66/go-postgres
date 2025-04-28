@@ -48,14 +48,16 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// Edit row
 			m.editIndex = m.table.Cursor()
 			m.editingRow = true
-			m.textInput.SetValue(strings.Join(m.table.SelectedRow(), ","))
+			row := m.table.SelectedRow()
+			m.textInput.SetValue(strings.Join(row, ",")) // Exclude ID from input
 			m.textInput.Focus()
-			m.message = fmt.Sprintf("✏️ Editing row %d. Enter new values:", m.editIndex)
+			m.message = fmt.Sprintf("✏️ Editing row. Enter new values:")
 		}
 		return m, textinput.Blink
 
 	case "backspace":
 		if m.confirmDelete {
+			id := m.getRowID(m.table.Cursor())
 			rows := m.table.Rows()
 			cursor := m.table.Cursor()
 			if len(rows) > 0 {
@@ -66,10 +68,8 @@ func (m *model) handleTableInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					m.table.SetCursor(len(rows) - 1)
 				}
 
-				m.message = "✅ Row deleted successfully."
-				//TODO deleting wrong record! What's the pattern?
-				id, _ := strconv.Atoi(rows[cursor][0])
-				err := database.DeleteRecord(m.database,id)
+				m.message = fmt.Sprintf("✅ Row with ID %d deleted successfully.", id)
+				err := database.DeleteRecord(m.database, id)
 				if err != nil {
 					m.message = fmt.Sprintf("❌ Error deleting record: %v", err)
 				}
@@ -99,18 +99,19 @@ func (m *model) addRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		if len(newValues) == 3 {
 			rows := m.table.Rows()
-			rows = slices.Insert(rows, len(rows)-1 ,newValues)
+			rows = slices.Insert(rows, len(rows)-1, newValues)
 			m.table.SetRows(rows)
-			m.table.SetCursor(len(rows)-2)
+			m.table.SetCursor(len(rows) - 2)
 
-			m.message = "✅ Row added successfully."
-			age, _ := strconv.Atoi(newValues[2])
-			_, err := database.CreateRecord(m.database, newValues[1], age)
+			priority, _ := strconv.Atoi(newValues[0])
+			id, err := database.CreateRecord(m.database, priority, newValues[1], newValues[2])
 			if err != nil {
 				m.message = fmt.Sprintf("❌ Error creating record: %v", err)
+			} else {
+				m.message = fmt.Sprintf("✅ Created record with ID %d", id)
 			}
 		} else {
-			m.message = "❌ Invalid input. Format: id,name,age"
+			m.message = "❌ Invalid input. Format: priority,task,due"
 		}
 		m.addingRow = false
 		m.textInput.Reset()
@@ -135,30 +136,29 @@ func (m *model) editRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case tea.KeyEnter:
 		input := m.textInput.Value()
 		newValues := strings.Split(strings.TrimSpace(input), ",")
-		row := m.table.SelectedRow()
+		id := m.getRowID(m.editIndex)
 
-		if len(newValues) == len(row) {
+		if len(newValues) == 3 {
 			rows := m.table.Rows()
 			rows[m.editIndex] = newValues
 			m.table.SetRows(rows)
 			m.table.SetCursor(m.editIndex)
 
 			m.message = "✅ Row updated successfully."
-			id, _ := strconv.Atoi(newValues[0])
-			age, _ := strconv.Atoi(newValues[2])
-			err := database.UpdateRecord(m.database, id, newValues[1], age)
+			priority, _ := strconv.Atoi(newValues[0])
+			err := database.UpdateRecord(m.database, id, priority, newValues[1], newValues[2])
 			if err != nil {
-				m.message = fmt.Sprintf("❌ Error deleting record: %v", err)
+				m.message = fmt.Sprintf("❌ Error editing record: %v", err)
 			}
 		} else {
-			m.message = "❌ Invalid input. Format: id,name,age"
+			m.message = "❌ Invalid input. Format: priority,task,due"
 		}
 		m.editingRow = false
 		m.textInput.Reset()
 		return m, nil
 
 	case tea.KeyEsc:
-		m.message = "❌ Edit canceled."
+		m.message = "❌ Edit cancelled."
 		m.editingRow = false
 		m.textInput.Reset()
 		return m, nil
@@ -166,6 +166,14 @@ func (m *model) editRow(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	m.textInput, cmd = m.textInput.Update(msg)
 	return m, cmd
+}
+
+func (m *model) getRowID(index int) int {
+	records, _ := database.ReadRecords(m.database)
+	if index < len(records) {
+		return records[index].ID
+	}
+	return -1 // Return an invalid ID if the index is out of range
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -197,7 +205,7 @@ func (m model) View() string {
 	if m.editingRow || m.addingRow {
 		b.WriteString(m.message + "\n")
 		b.WriteString(m.textInput.View())
-	} else if m.message != "" {
+	} else if (m.message != "") {
 		b.WriteString(m.message + "\n")
 	}
 
@@ -206,17 +214,17 @@ func (m model) View() string {
 
 func createTable(records []database.Record) table.Model {
 	columns := []table.Column{
-		{Title: "ID", Width: 4},
-		{Title: "Name", Width: 13},
-		{Title: "Age", Width: 5},
+		{Title: "Priority", Width: 9},
+		{Title: "Task", Width: 13},
+		{Title: "Due", Width: 5},
 	}
 
 	var rows []table.Row
 	for _, record := range records {
 		rows = append(rows, table.Row{
-			fmt.Sprintf("%d", record.ID),
-			record.Name,
-			fmt.Sprintf("%d", record.Age),
+			fmt.Sprintf("%d", record.Priority),
+			record.Task,
+			record.Due,
 		})
 	}
 
@@ -256,7 +264,7 @@ func CLI() {
 	}
 
 	ti := textinput.New()
-	ti.Placeholder = "id,name,age"
+	ti.Placeholder = "priority,task,due"
 	ti.CharLimit = 100
 	ti.Width = 30
 

@@ -16,57 +16,22 @@ const (
 	dbname   = "postgres"
 )
 
-func Script() {
-	db := InitialiseTable()
-
-	defer db.Close()
-
-	// Create a new record
-	id, err := CreateRecord(db, "John", 30)
-	if err != nil {
-		log.Fatal("Error creating record: ", err)
-	}
-	fmt.Println("Created record with ID:", id)
-
-	// Read records
-	records, err := ReadRecords(db)
-	if err != nil {
-		log.Fatal("Error reading records: ", err)
-	}
-	fmt.Println("All records:")
-	for _, r := range records {
-		fmt.Println("ID:", r.ID, "Name:", r.Name, "Age:", r.Age)
-	}
-
-	// Update a record
-	err = UpdateRecord(db, id, "Janey", 35)
-	if err != nil {
-		log.Fatal("Error updating record: ", err)
-	}
-	fmt.Println("Updated record with ID:", id)
-
-	// Delete a record
-	err = DeleteRecord(db, id)
-	if err != nil {
-		log.Fatal("Error deleting record: ", err)
-	}
-	fmt.Println("Deleted record with ID:", id)
-}
-
 // Record represents a database record
 type Record struct {
-	ID   int
-	Name string
-	Age  int
+	ID	int
+	Priority	int
+	Task string
+	Due  string
 }
 
-// createEmptyTable creates the records table if it doesn't exist
+// createEmptyTable creates the table if it doesn't exist
 func createEmptyTable(db *sql.DB) error {
     query := `
-    CREATE TABLE IF NOT EXISTS records (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100),
-        age INT,
+    CREATE TABLE IF NOT EXISTS todo (
+        id INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+		priority INT,
+        task VARCHAR(100),
+		due VARCHAR(100),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`
     _, err := db.Exec(query)
@@ -90,10 +55,9 @@ func InitialiseTable() *sql.DB {
 }
 
 // CreateRecord creates a new record in the database
-// TODO delete in favour of InsertRecord?
-func CreateRecord(db *sql.DB, name string, age int) (int, error) {
+func CreateRecord(db *sql.DB, priority int, task string, due string) (int, error) {
 	var id int
-	err := db.QueryRow("INSERT INTO records(name, age) VALUES($1, $2) RETURNING id", name, age).Scan(&id)
+	err := db.QueryRow("INSERT INTO todo(priority, task, due) VALUES($1, $2, $3) RETURNING id", priority, task, due).Scan(&id)
 	if err != nil {
 		return 0, err
 	}
@@ -102,7 +66,7 @@ func CreateRecord(db *sql.DB, name string, age int) (int, error) {
 
 // ReadRecords retrieves all records from the database
 func ReadRecords(db *sql.DB) ([]Record, error) {
-	rows, err := db.Query("SELECT id, name, age FROM records")
+	rows, err := db.Query("SELECT id, priority, task, due FROM todo")
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +75,7 @@ func ReadRecords(db *sql.DB) ([]Record, error) {
 	var records []Record
 	for rows.Next() {
 		var r Record
-		err := rows.Scan(&r.ID, &r.Name, &r.Age)
+		err := rows.Scan(&r.ID, &r.Priority, &r.Task, &r.Due)
 		if err != nil {
 			return nil, err
 		}
@@ -122,25 +86,19 @@ func ReadRecords(db *sql.DB) ([]Record, error) {
 
 // ClearRecords removes all records from the database
 func ClearRecords(db *sql.DB) error {
-	_, err := db.Exec("DELETE FROM records")
-	return err
-}
-
-// InsertRecord inserts a single record into the database
-func InsertRecord(db *sql.DB, record Record) error {
-	_, err := db.Exec("INSERT INTO records (id, name, age) VALUES ($1, $2, $3)", record.ID, record.Name, record.Age)
+	_, err := db.Exec("DELETE FROM todo")
 	return err
 }
 
 // UpdateRecord updates an existing record in the database
-func UpdateRecord(db *sql.DB, id int, name string, age int) error {
-	_, err := db.Exec("UPDATE records SET name=$1, age=$2 WHERE id=$3", name, age, id)
+func UpdateRecord(db *sql.DB, id int, priority int, task string, due string) error {
+	_, err := db.Exec("UPDATE todo SET priority=$2, task=$3, due=$4 WHERE id=$1", id, priority, task, due)
 
 	return err
 }
 
 func DeleteRecord(db *sql.DB, id int) error {
-	_, err := db.Exec("DELETE FROM records WHERE id=$1", id)
+	_, err := db.Exec("DELETE FROM todo WHERE id=$1", id)
 
 	return err
 }
